@@ -1,0 +1,62 @@
+name: Build LEV Projects PS3 PKG
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: hldtux/ps3dev:latest
+    steps:
+      - name: Checkout source archive
+        uses: actions/checkout@v5
+
+      - name: Show PS3 toolchain
+        shell: bash
+        run: |
+          echo "PS3DEV=${PS3DEV:-/usr/local/ps3dev}"
+          echo "PSL1GHT=${PSL1GHT:-${PS3DEV:-/usr/local/ps3dev}}"
+          command -v ppu-gcc
+          ppu-gcc --version | head -n 1
+
+      - name: Build Tiny3D and libfont
+        shell: bash
+        run: |
+          set -euxo pipefail
+          if ! command -v git >/dev/null 2>&1; then
+            apt-get update
+            apt-get install -y git make unzip
+          fi
+          export PS3DEV="${PS3DEV:-/usr/local/ps3dev}"
+          export PSL1GHT="${PSL1GHT:-$PS3DEV}"
+          export PATH="$PS3DEV/bin:$PS3DEV/ppu/bin:$PS3DEV/spu/bin:$PATH"
+          git clone --depth 1 https://github.com/granberro/tiny3d.git "$RUNNER_TEMP/tiny3d"
+          make -C "$RUNNER_TEMP/tiny3d/lib" install
+          make -C "$RUNNER_TEMP/tiny3d/libfont" install
+          find "$PSL1GHT" \( -name 'libtiny3d.a' -o -name 'libfont.a' \) -print
+
+      - name: Extract source and build PKG
+        shell: bash
+        run: |
+          set -euxo pipefail
+          export PS3DEV="${PS3DEV:-/usr/local/ps3dev}"
+          export PSL1GHT="${PSL1GHT:-$PS3DEV}"
+          export PATH="$PS3DEV/bin:$PS3DEV/ppu/bin:$PS3DEV/spu/bin:$PATH"
+          mkdir -p "$RUNNER_TEMP/lev-project-source"
+          unzip -q LEV_Projects_PS3_0.2_Source.zip -d "$RUNNER_TEMP/lev-project-source"
+          cd "$RUNNER_TEMP/lev-project-source/LEV_Projects_PS3_0.2"
+          make clean
+          make -j2
+          make pkg
+          cp LEV_Projects_PS3.pkg "$GITHUB_WORKSPACE/LEV_Projects_PS3.pkg"
+          ls -lh "$GITHUB_WORKSPACE/LEV_Projects_PS3.pkg"
+
+      - name: Upload PS3 package
+        uses: actions/upload-artifact@v4
+        with:
+          name: LEV-Projects-PS3-0.2-PKG
+          path: LEV_Projects_PS3.pkg
+          if-no-files-found: error
