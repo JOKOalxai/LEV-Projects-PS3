@@ -46,23 +46,54 @@ jobs:
           make -C /tmp/tiny3D/libfont install
 
           ZIP_FILE="/workspace/LEV_Projects_PS3_0.2.1_Source_Fixed.zip"
-          test -f "$ZIP_FILE"
+          if [ ! -s "$ZIP_FILE" ]; then
+            echo "::error::Source ZIP is missing or empty: $ZIP_FILE"
+            echo "Files available in repository root:"
+            find /workspace -maxdepth 2 -type f -printf '%p\n' | sort
+            exit 2
+          fi
+
           rm -rf /tmp/lev-project-source
           mkdir -p /tmp/lev-project-source
           unzip -q "$ZIP_FILE" -d /tmp/lev-project-source
-          cd /tmp/lev-project-source/LEV_Projects_PS3_0.2
+          PROJECT_DIR="/tmp/lev-project-source/LEV_Projects_PS3_0.2"
+          if [ ! -f "$PROJECT_DIR/Makefile" ]; then
+            echo "::error::Could not find project Makefile under $PROJECT_DIR"
+            find /tmp/lev-project-source -maxdepth 4 -type f -printf '%p\n' | sort
+            exit 3
+          fi
 
+          cd "$PROJECT_DIR"
+          echo "Building in: $PWD"
           make clean
           make -j2
           make pkg
-          test -s LEV_Projects_PS3.pkg
-          cp LEV_Projects_PS3.pkg /workspace/LEV_Projects_PS3.pkg
-          ls -lh /workspace/LEV_Projects_PS3.pkg
+
+          echo "Package/build outputs discovered:"
+          find "$PROJECT_DIR" -type f \( -name '*.pkg' -o -name '*.self' -o -name '*.elf' \) -size +0c -print -exec ls -lh {} \;
+
+          PKG_FILE="$(find "$PROJECT_DIR" -type f -name 'LEV_Projects_PS3.pkg' -size +0c -print -quit)"
+          if [ -z "$PKG_FILE" ]; then
+            echo "::error::make pkg completed but LEV_Projects_PS3.pkg was not found. See the output listing above."
+            exit 4
+          fi
+
+          mkdir -p /workspace/dist
+          cp "$PKG_FILE" /workspace/dist/LEV_Projects_PS3.pkg
+          test -s /workspace/dist/LEV_Projects_PS3.pkg
+          ls -lh /workspace/dist/LEV_Projects_PS3.pkg
           CONTAINER_SCRIPT
+
+      - name: Show package file on runner
+        if: always()
+        shell: bash
+        run: |
+          echo "Workspace: $GITHUB_WORKSPACE"
+          find "$GITHUB_WORKSPACE" -maxdepth 4 -type f \( -name '*.pkg' -o -name '*.elf' -o -name '*.self' \) -print -exec ls -lh {} \; || true
 
       - name: Upload PS3 package artifact
         uses: actions/upload-artifact@v4
         with:
           name: LEV-Projects-PS3-0.2-PKG
-          path: LEV_Projects_PS3.pkg
+          path: dist/LEV_Projects_PS3.pkg
           if-no-files-found: error
